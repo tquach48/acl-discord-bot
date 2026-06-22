@@ -73,8 +73,14 @@ client.once(Events.ClientReady, async (c) => {
   } catch (e) {
     log.error('startup', e);
   }
-  // Heartbeat so host log viewers show liveness.
-  setInterval(() => log.info('heartbeat'), 5 * 60 * 1000);
+  // Heartbeat → bot_status table (drives the website's fail-open membership
+  // gate) + host log. Write immediately, then every 2 minutes. The site
+  // treats a heartbeat older than ~7 min as "bot down" and disables the gate.
+  const beat = () => acl.touchHeartbeat()
+    .then(() => log.info('heartbeat'))
+    .catch((e) => log.warn('heartbeat write failed', e?.message));
+  await beat();
+  setInterval(beat, 2 * 60 * 1000);
 });
 
 // Keep accounts.is_in_discord_server in sync from live join/leave events so

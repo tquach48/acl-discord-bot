@@ -106,6 +106,16 @@ export async function setMembershipForAccounts(accountIds, isIn) {
   if (error) throw error;
 }
 
+// Liveness heartbeat. The website's membership gate fails open when this goes
+// stale (it assumes the bot is down and stops enforcing).
+export async function touchHeartbeat() {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('bot_status')
+    .upsert({ id: true, last_heartbeat_at: now, updated_at: now }, { onConflict: 'id' });
+  if (error) throw error;
+}
+
 // ---- Tournament scope ----------------------------------------------------
 export async function getActiveTournamentId() {
   const { data } = await supabase
