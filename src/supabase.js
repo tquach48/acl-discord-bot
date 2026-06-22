@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 import { config } from './config.js';
 
 // Service-role client: full DB access, RLS bypassed. The bot enforces its
@@ -13,7 +14,10 @@ function getClient() {
   if (!instance) {
     instance = createClient(config.supabaseUrl, config.supabaseServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
-      realtime: { params: { eventsPerSecond: 5 } },
+      // Node has no global WebSocket until v22, so the realtime client can't
+      // find one (this also affects the node:20 Docker image). Supply `ws`
+      // explicitly so realtime works on every Node version we target.
+      realtime: { transport: WebSocket, params: { eventsPerSecond: 5 } },
     });
   }
   return instance;
