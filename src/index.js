@@ -12,7 +12,14 @@ import { startRealtime } from './notifications/realtime.js';
 
 assertConfig();
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// Last-resort safety nets so a stray rejection in an async event handler
+// can't silently kill the process (or, on Node ≥15, crash it uncaught).
+process.on('unhandledRejection', (reason) => log.error('unhandledRejection', reason));
+process.on('uncaughtException', (err) => { log.error('uncaughtException', err); process.exit(1); });
+
+// GuildMembers is enabled so guild.members.fetch(id) and the member cache are
+// reliable for auto role-sync. (Enable "Server Members Intent" in the Bot tab.)
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const commandMap = new Map(commands.map((c) => [c.data.name, c]));
 // supabase here is the lazy proxy; the real client is built on first use
 // (after assertConfig above). Exposed for cron/realtime queries.

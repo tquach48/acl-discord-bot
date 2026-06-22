@@ -31,13 +31,18 @@ It is a standalone always-on Node service. It does **not** modify the website.
 
 1. **A Discord application + bot** ([Discord Developer Portal](https://discord.com/developers/applications)).
    - Bot tab → **Reset Token** → copy `DISCORD_TOKEN`. General Info → copy `DISCORD_CLIENT_ID`.
+   - Bot tab → enable the **Server Members Intent** (privileged). The bot uses it for reliable
+     member fetch + caching during auto role-sync. (No verification needed under 100 servers.)
    - Invite URL (OAuth2 → URL Generator): scopes **`bot`** + **`applications.commands`**;
      bot permissions **Manage Roles, Send Messages, Embed Links, Mention Everyone,
      Read Message History**.
 2. **Your Supabase project** URL + **service-role** key (Dashboard → Settings → API).
-3. **Realtime publication:** the bot subscribes to `matches`, `calendar_events`, `accounts`,
-   `team_members`, `teams`. These are already in the league DB's realtime publication (the website
-   uses them); if you ever recreate the DB, ensure they're added to `supabase_realtime`.
+3. **Realtime publication:** the bot reacts to changes on `matches`, `accounts`, `team_members`,
+   and `teams` — all already in the league DB's `supabase_realtime` publication.
+   - `calendar_events` is **not** in the publication, so the *instant* "new key date added" post
+     won't fire. The **daily 9 AM deadline post works regardless** (it reads via REST). To enable
+     the instant post too, run once against your DB:
+     `alter publication supabase_realtime add table public.calendar_events;`
 4. After inviting the bot, **drag its role above** the province/team/captain roles in
    Server Settings → Roles (Discord can only manage roles below its own).
 

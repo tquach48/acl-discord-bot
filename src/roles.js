@@ -15,6 +15,16 @@ function findRole(guild, name) {
   return guild.roles.cache.find((r) => r.name === name) || null;
 }
 
+// Accept hex strings ("#1e6091" / "1e6091"), ints, or null and return an int
+// (or undefined). Team colors arrive from the DB as hex strings; passing a
+// malformed value straight to roles.create() would throw.
+function resolveColor(color) {
+  if (color == null || color === '') return undefined;
+  if (typeof color === 'number') return Number.isNaN(color) ? undefined : color;
+  const n = Number.parseInt(String(color).replace('#', '').trim(), 16);
+  return Number.isNaN(n) ? undefined : n;
+}
+
 // Find a role by name, creating it if it doesn't exist yet.
 export async function ensureRole(guild, name, color, { mentionable = false } = {}) {
   const existing = findRole(guild, name);
@@ -22,7 +32,7 @@ export async function ensureRole(guild, name, color, { mentionable = false } = {
   log.info(`Creating role "${name}"`);
   return guild.roles.create({
     name,
-    color: color ?? undefined,
+    color: resolveColor(color),
     mentionable,
     reason: 'ACL bot managed role',
   });
@@ -96,11 +106,14 @@ export async function syncMemberRoles(guild, member, desired) {
 }
 
 // Gather the player's current team + captaincy from the DB, then sync.
+// `teams` (all teams) is only used to know which role names are team roles so
+// stale ones can be removed; captaincy is tied to the CURRENT team (matching
+// the website: a player is a captain iff they captain the team they're on).
 export async function syncForAccount(guild, member, account) {
   const teams = await acl.getTeams();
   const currentTeamId = await acl.getCurrentTeamId(account.id);
   const currentTeam = currentTeamId ? teams.find((t) => t.id === currentTeamId) || null : null;
-  const isCaptain = teams.some((t) => t.captain_id === account.id);
+  const isCaptain = !!currentTeam && currentTeam.captain_id === account.id;
   return syncMemberRoles(guild, member, {
     provinceCode: account.province,
     currentTeam,

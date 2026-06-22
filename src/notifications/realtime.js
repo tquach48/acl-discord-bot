@@ -111,16 +111,22 @@ export async function startRealtime(client, ctx) {
       // Captaincy transfer: re-sync the new captain (old captain can re-run /roles).
       if (payload.new?.captain_id) await resyncAccount(ctx, guild, payload.new.captain_id);
     })
+    // NOTE: only fires if `calendar_events` is in the supabase_realtime
+    // publication (it is not, by default — see README). The daily 9AM cron
+    // posts deadlines via REST regardless, so this is a bonus, not the path
+    // we rely on. The daily post is the source of truth.
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'calendar_events' }, async (payload) => {
-      const e = payload.new;
-      if (!e?.title) return;
-      const channel = await matchDayChannel(client);
-      if (channel) {
-        await channel.send({
-          content: `📅 New key date added: **${e.title}**. See ${link.schedule()}`,
-          allowedMentions: { parse: [] },
-        });
-      }
+      try {
+        const e = payload.new;
+        if (!e?.title) return;
+        const channel = await matchDayChannel(client);
+        if (channel) {
+          await channel.send({
+            content: `📅 New key date added: **${e.title}**. See ${link.schedule()}`,
+            allowedMentions: { parse: [] },
+          });
+        }
+      } catch (err) { log.error('calendar insert', err); }
     })
     .subscribe((status) => log.info(`Realtime channel: ${status}`));
 }

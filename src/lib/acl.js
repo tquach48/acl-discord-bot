@@ -46,13 +46,21 @@ export async function getAccountById(id) {
   return data || null;
 }
 
+// Strip characters that would break a PostgREST or() filter string (commas
+// split conditions; parens/asterisks/colons/quotes are operators/wildcards).
+function sanitizeSearch(s) {
+  return String(s).replace(/[,()*:"%]/g, ' ').trim();
+}
+
 // Loose lookup for /profile <player>: match on display name or Riot ID.
+// PostgREST uses `*` (not `%`) as the wildcard inside an or() filter.
 export async function searchAccount(query) {
-  const q = `%${query}%`;
+  const q = sanitizeSearch(query);
+  if (!q) return null;
   const { data, error } = await supabase
     .from('accounts')
     .select('*')
-    .or(`display_name.ilike.${q},riot_id.ilike.${q}`)
+    .or(`display_name.ilike.*${q}*,riot_id.ilike.*${q}*`)
     .limit(1);
   if (error) throw error;
   return data?.[0] || null;
@@ -90,10 +98,12 @@ export async function getTeamById(id) {
 }
 
 export async function getTeamByName(name) {
+  const q = sanitizeSearch(name);
+  if (!q) return null;
   const { data, error } = await supabase
     .from('teams')
     .select(TEAM_COLS)
-    .or(`name.ilike.%${name}%,tag.ilike.%${name}%`)
+    .or(`name.ilike.*${q}*,tag.ilike.*${q}*`)
     .limit(1);
   if (error) throw error;
   return data?.[0] || null;
@@ -159,8 +169,11 @@ export async function getUpcomingMatches({ teamId = null, limit = null } = {}) {
     .order('scheduled_at', { ascending: true });
   if (error) throw error;
   const stageIds = await getActiveStageIds();
+  // When an active tournament exists, scope strictly to its stages (a match
+  // with no stage_id belongs to no active stage, so it's excluded). With no
+  // active tournament set, fall back to showing all upcoming matches.
   let rows = (data || []).filter(
-    (m) => !stageIds.length || !m.stage_id || stageIds.includes(m.stage_id),
+    (m) => !stageIds.length || (m.stage_id && stageIds.includes(m.stage_id)),
   );
   if (teamId) rows = rows.filter((m) => m.team1_id === teamId || m.team2_id === teamId);
   if (limit) rows = rows.slice(0, limit);
