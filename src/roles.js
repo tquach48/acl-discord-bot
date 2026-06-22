@@ -106,6 +106,48 @@ export async function syncMemberRoles(guild, member, desired) {
   return { added, removed, errors };
 }
 
+// Bulk-sync every linked ACL player who is currently in the guild. Loads
+// teams + memberships once (no N+1), pre-fetches the member list, then applies
+// roles per player. Returns a summary for the admin reply.
+export async function syncAllMembers(guild) {
+  const [accounts, teams, memberships] = await Promise.all([
+    acl.getLinkedAccounts(),
+    acl.getTeams(),
+    acl.getActiveMemberships(),
+  ]);
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const teamByAccount = new Map(memberships.map((m) => [m.account_id, m.team_id]));
+
+  // Populate the member cache in one shot (needs GuildMembers intent). Falls
+  // back to per-id fetch below if this isn't available.
+  await guild.members.fetch().catch(() => null);
+
+  const summary = { total: accounts.length, processed: 0, changed: 0, notInGuild: 0, failed: 0, errors: [] };
+  for (const acc of accounts) {
+    let member = guild.members.cache.get(acc.discord_id);
+    if (!member) member = await guild.members.fetch(acc.discord_id).catch(() => null);
+    if (!member) { summary.notInGuild += 1; continue; }
+
+    const currentTeam = teamById.get(teamByAccount.get(acc.id)) || null;
+    const isCaptain = !!currentTeam && currentTeam.captain_id === acc.id;
+    try {
+      const r = await syncMemberRoles(guild, member, {
+        provinceCode: acc.province, currentTeam, teams, isCaptain,
+      });
+      summary.processed += 1;
+      if (r.added.length || r.removed.length) summary.changed += 1;
+      if (r.errors.length) {
+        summary.failed += 1;
+        if (summary.errors.length < 10) summary.errors.push(`${acc.display_name}: ${r.errors.join('; ')}`);
+      }
+    } catch (e) {
+      summary.failed += 1;
+      if (summary.errors.length < 10) summary.errors.push(`${acc.display_name || acc.id}: ${e.message}`);
+    }
+  }
+  return summary;
+}
+
 // Gather the player's current team + captaincy from the DB, then sync.
 // `teams` (all teams) is only used to know which role names are team roles so
 // stale ones can be removed; captaincy is tied to the CURRENT team (matching

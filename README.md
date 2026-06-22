@@ -24,6 +24,11 @@ It is a standalone always-on Node service. It does **not** modify the website.
 **Info commands** — `/whoami`, `/profile [player]`, `/team <name>`, `/schedule`, `/mymatches`,
 `/standings`, and `/code` (captains only — DMs your next match's tournament code + draft link).
 
+**Admin** — `/sync-all-roles` (ACL admins only): shows a confirm button, then assigns
+province / team / Team Captain roles to **every** linked ACL player currently in the server
+(and removes ones that no longer apply). Use it once after inviting the bot to back-fill roles
+for existing members; new/changed players are kept in sync automatically after that.
+
 > The bot links Discord ↔ ACL accounts via `accounts.discord_id`. Players must sign in with
 > Discord at playacl.ca at least once before the bot recognizes them.
 
@@ -115,4 +120,4 @@ deploy-commands.js      register slash commands to the guild
 ## Roadmap (scaffolded / not yet built)
 
 Rank-tier roles · new-member onboarding DM · free-agent ping on Looking-for-Team ·
-match check-in · admin commands (`/announce`, `/sync-all-roles`, `/create-team-roles`).
+match check-in · more admin commands (`/announce`, `/create-team-roles`).

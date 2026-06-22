@@ -7,5 +7,6 @@ import schedule from './schedule.js';
 import mymatches from './mymatches.js';
 import standings from './standings.js';
 import code from './code.js';
+import syncroles from './syncroles.js';
 
-export const commands = [roles, whoami, profile, team, schedule, mymatches, standings, code];
+export const commands = [roles, whoami, profile, team, schedule, mymatches, standings, code, syncroles];

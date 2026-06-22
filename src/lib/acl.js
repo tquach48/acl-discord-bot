@@ -66,6 +66,16 @@ export async function searchAccount(query) {
   return data?.[0] || null;
 }
 
+// All accounts linked to a Discord user (the players the bot can role-manage).
+export async function getLinkedAccounts() {
+  const { data, error } = await supabase
+    .from('accounts')
+    .select('id, discord_id, display_name, province')
+    .not('discord_id', 'is', null);
+  if (error) throw error;
+  return data || [];
+}
+
 // ---- Tournament scope ----------------------------------------------------
 export async function getActiveTournamentId() {
   const { data } = await supabase
@@ -138,6 +148,17 @@ export async function getRoster(teamId) {
 export async function getRosterDiscordIds(teamId) {
   const roster = await getRoster(teamId);
   return roster.map((r) => r.account?.discord_id).filter(Boolean);
+}
+
+// Every active (not-left) team membership, for bulk role syncs without an
+// N+1 query per player.
+export async function getActiveMemberships() {
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('account_id, team_id')
+    .is('left_at', null);
+  if (error) throw error;
+  return data || [];
 }
 
 // The player's current active team id (null if free agent).
