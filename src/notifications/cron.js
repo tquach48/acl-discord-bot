@@ -26,19 +26,19 @@ async function postMatchReminder(client, ctx, match, label) {
     ctx.acl.getTeamById(match.team1_id),
     ctx.acl.getTeamById(match.team2_id),
   ]);
-  const [ids1, ids2] = await Promise.all([
-    ctx.acl.getRosterDiscordIds(match.team1_id),
-    ctx.acl.getRosterDiscordIds(match.team2_id),
-  ]);
-  const ids = [...new Set([...ids1, ...ids2])];
-  const mentions = ids.map((id) => `<@${id}>`).join(' ');
+  // Ping each team's role (rostered players all hold it after a sync) rather
+  // than @-ing individual players.
+  const roleIds = [t1, t2]
+    .map((t) => t && ctx.roles.getRoleByName(channel.guild, t.name)?.id)
+    .filter(Boolean);
+  const mentions = roleIds.map((id) => `<@&${id}>`).join(' ');
   const content = [
     `⏰ **Match in ${label}** — ${teamLabel(t1)} vs ${teamLabel(t2)}`,
     `🕒 ${formatTime(match.scheduled_at)} · ${link.match(match.id)}`,
     mentions,
   ].filter(Boolean).join('\n');
-  await channel.send({ content, allowedMentions: { users: ids } });
-  log.info(`Posted ${label} reminder for match ${match.id} (pinged ${ids.length})`);
+  await channel.send({ content, allowedMentions: { roles: roleIds } });
+  log.info(`Posted ${label} reminder for match ${match.id} (pinged ${roleIds.length} team role(s))`);
 }
 
 async function checkMatchReminders(client, ctx) {

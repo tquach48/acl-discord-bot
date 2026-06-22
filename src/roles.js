@@ -15,6 +15,11 @@ function findRole(guild, name) {
   return guild.roles.cache.find((r) => r.name === name) || null;
 }
 
+// Exported lookup for callers that need a role by name (e.g. team pings).
+export function getRoleByName(guild, name) {
+  return findRole(guild, name);
+}
+
 // Accept hex strings ("#1e6091" / "1e6091"), ints, or null and return an int
 // (or undefined). Team colors arrive from the DB as hex strings; passing a
 // malformed value straight to roles.create() would throw.

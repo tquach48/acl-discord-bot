@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { log } from '../lib/log.js';
 import { teamLabel, link } from '../lib/format.js';
-import { ensureMatchPingsRole } from '../roles.js';
+import { ensureMatchPingsRole, getRoleByName } from '../roles.js';
 
 // Caches so we can detect *transitions* without relying on REPLICA IDENTITY
 // FULL (Realtime's `old` payload otherwise only carries the primary key).
@@ -24,25 +24,21 @@ async function matchDayChannel(client) {
 async function announceLive(client, ctx, guild, match) {
   const channel = await matchDayChannel(client);
   if (!channel) return;
-  const [t1, t2, ids1, ids2] = await Promise.all([
+  const [t1, t2] = await Promise.all([
     ctx.acl.getTeamById(match.team1_id),
     ctx.acl.getTeamById(match.team2_id),
-    ctx.acl.getRosterDiscordIds(match.team1_id),
-    ctx.acl.getRosterDiscordIds(match.team2_id),
   ]);
-  const ids = [...new Set([...ids1, ...ids2])];
+  // Ping the two team roles + the opt-in Match Pings role — never individuals.
+  const teamRoleIds = [t1, t2].map((t) => t && getRoleByName(guild, t.name)?.id).filter(Boolean);
   let pingRole = null;
   try { pingRole = await ensureMatchPingsRole(guild); } catch (e) { log.warn('match-pings role', e?.message); }
+  const roleIds = [...teamRoleIds, ...(pingRole ? [pingRole.id] : [])];
   const content = [
     `🔴 **LIVE NOW** — ${teamLabel(t1)} vs ${teamLabel(t2)}`,
     `📺 ${link.match(match.id)}`,
-    [ids.map((id) => `<@${id}>`).join(' '), pingRole ? `<@&${pingRole.id}>` : '']
-      .filter(Boolean).join(' '),
+    roleIds.map((id) => `<@&${id}>`).join(' '),
   ].filter(Boolean).join('\n');
-  await channel.send({
-    content,
-    allowedMentions: { users: ids, roles: pingRole ? [pingRole.id] : [] },
-  });
+  await channel.send({ content, allowedMentions: { roles: roleIds } });
   log.info(`Announced LIVE for match ${match.id}`);
 }
 
