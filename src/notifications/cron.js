@@ -3,6 +3,7 @@ import { EmbedBuilder } from 'discord.js';
 import { config } from '../config.js';
 import { log } from '../lib/log.js';
 import { ACCENT, formatTime, teamLabel, link } from '../lib/format.js';
+import { postMatchNotification } from './matchPosts.js';
 
 // In-memory de-dup. Windows below are wider than the 5-min cron interval, so
 // each match hits its window exactly once; the Set prevents a double-send
@@ -37,7 +38,9 @@ async function postMatchReminder(client, ctx, match, label) {
     `🕒 ${formatTime(match.scheduled_at)} · ${link.match(match.id)}`,
     mentions,
   ].filter(Boolean).join('\n');
-  await channel.send({ content, allowedMentions: { roles: roleIds } });
+  // Supersede this match's previous notification (24h → 1h) and suppress
+  // the big link embed.
+  await postMatchNotification(channel, match.id, { content, allowedMentions: { roles: roleIds } });
   log.info(`Posted ${label} reminder for match ${match.id} (pinged ${roleIds.length} team role(s))`);
 }
 

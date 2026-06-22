@@ -1,7 +1,9 @@
+import { MessageFlags } from 'discord.js';
 import { config } from '../config.js';
 import { log } from '../lib/log.js';
 import { teamLabel, link } from '../lib/format.js';
-import { ensureMatchPingsRole, getRoleByName } from '../roles.js';
+import { ensureMatchPingsRole } from '../roles.js';
+import { postMatchNotification } from './matchPosts.js';
 
 // Caches so we can detect *transitions* without relying on REPLICA IDENTITY
 // FULL (Realtime's `old` payload otherwise only carries the primary key).
@@ -28,17 +30,16 @@ async function announceLive(client, ctx, guild, match) {
     ctx.acl.getTeamById(match.team1_id),
     ctx.acl.getTeamById(match.team2_id),
   ]);
-  // Ping the two team roles + the opt-in Match Pings role — never individuals.
-  const teamRoleIds = [t1, t2].map((t) => t && getRoleByName(guild, t.name)?.id).filter(Boolean);
+  // LIVE pings ONLY the opt-in Match Pings role — not the teams.
   let pingRole = null;
   try { pingRole = await ensureMatchPingsRole(guild); } catch (e) { log.warn('match-pings role', e?.message); }
-  const roleIds = [...teamRoleIds, ...(pingRole ? [pingRole.id] : [])];
+  const roleIds = pingRole ? [pingRole.id] : [];
   const content = [
     `🔴 **LIVE NOW** — ${teamLabel(t1)} vs ${teamLabel(t2)}`,
     `📺 ${link.match(match.id)}`,
-    roleIds.map((id) => `<@&${id}>`).join(' '),
+    pingRole ? `<@&${pingRole.id}>` : '',
   ].filter(Boolean).join('\n');
-  await channel.send({ content, allowedMentions: { roles: roleIds } });
+  await postMatchNotification(channel, match.id, { content, allowedMentions: { roles: roleIds } });
   log.info(`Announced LIVE for match ${match.id}`);
 }
 
@@ -51,7 +52,8 @@ async function announceFinal(client, ctx, match) {
   ]);
   const winner = match.score1 > match.score2 ? t1 : match.score2 > match.score1 ? t2 : null;
   const result = winner ? `🏆 **${teamLabel(winner)}** win` : 'Draw';
-  await channel.send({
+  // Final supersedes the LIVE message for this match.
+  await postMatchNotification(channel, match.id, {
     content: `🏁 **Final** — ${teamLabel(t1)} ${match.score1}–${match.score2} ${teamLabel(t2)} · ${result}\n${link.match(match.id)}`,
     allowedMentions: { parse: [] },
   });
@@ -120,6 +122,7 @@ export async function startRealtime(client, ctx) {
           await channel.send({
             content: `📅 New key date added: **${e.title}**. See ${link.schedule()}`,
             allowedMentions: { parse: [] },
+            flags: MessageFlags.SuppressEmbeds,
           });
         }
       } catch (err) { log.error('calendar insert', err); }
