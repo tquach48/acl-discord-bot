@@ -17,15 +17,16 @@ It is a standalone always-on Node service. It does **not** modify the website.
 
 **Self-serve roles** (button in `#onboarding`, or `/roles`)
 - Assigns your **province** role (Nova Scotia / New Brunswick / PEI / Newfoundland & Labrador /
-  Out of Region), your **team** role, and the **Team Captain** role if you captain a team.
-- **Auto role-sync:** when your province/team/captaincy changes on the site, your Discord roles
-  update automatically.
+  Out of Region), your **team** role, the **Team Captain** role if you captain a team, and the
+  current **season** role (e.g. `ACL Season 4`) if your team is in the active tournament.
+- **Auto role-sync:** when your province/team/captaincy/participation changes on the site, your
+  Discord roles update automatically (old-season roles are removed so they don't pile up).
 
 **Info commands** — `/whoami`, `/profile [player]`, `/team <name>`, `/schedule`, `/mymatches`,
 `/standings`, and `/code` (captains only — DMs your next match's tournament code + draft link).
 
 **Admin** — `/sync-all-roles` (ACL admins only): shows a confirm button, then assigns
-province / team / Team Captain roles to **every** linked ACL player currently in the server
+province / team / Team Captain / season roles to **every** linked ACL player currently in the server
 (and removes ones that no longer apply). Use it once after inviting the bot to back-fill roles
 for existing members; new/changed players are kept in sync automatically after that.
 

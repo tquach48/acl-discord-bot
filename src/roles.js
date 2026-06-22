@@ -3,7 +3,7 @@
 // roles it manages) instead of throwing.
 import {
   provinceRoleName, ALL_PROVINCE_ROLE_NAMES, PROVINCE_ROLE_COLOR,
-  CAPTAIN_ROLE, MATCH_PINGS_ROLE,
+  CAPTAIN_ROLE, MATCH_PINGS_ROLE, TOURNAMENT_ROLE_COLOR,
 } from './lib/acl.js';
 import * as acl from './lib/acl.js';
 import { log } from './lib/log.js';
@@ -51,7 +51,10 @@ function roleErr(name, e) {
 // Apply the desired province / team / captain roles to a guild member.
 // `desired`: { provinceCode, currentTeam, teams, isCaptain }
 export async function syncMemberRoles(guild, member, desired) {
-  const { provinceCode, currentTeam, teams, isCaptain } = desired;
+  const {
+    provinceCode, currentTeam, teams, isCaptain,
+    tournamentRoleName = null, inTournament = false, allTournamentRoleNames = [],
+  } = desired;
   const added = [];
   const removed = [];
   const errors = [];
@@ -103,6 +106,22 @@ export async function syncMemberRoles(guild, member, desired) {
     await tryRemove(findRole(guild, CAPTAIN_ROLE));
   }
 
+  // --- Tournament / season (e.g. "ACL Season 4") ---
+  // Granted only to players on a team participating in the active tournament;
+  // any other (past-season) tournament role is removed so they don't pile up.
+  if (tournamentRoleName) {
+    if (inTournament) {
+      let tRole = null;
+      try { tRole = await ensureRole(guild, tournamentRoleName, TOURNAMENT_ROLE_COLOR); }
+      catch (e) { errors.push(roleErr(tournamentRoleName, e)); }
+      await tryAdd(tRole);
+    }
+    for (const name of allTournamentRoleNames) {
+      if (inTournament && name === tournamentRoleName) continue;
+      await tryRemove(findRole(guild, name));
+    }
+  }
+
   return { added, removed, errors };
 }
 
@@ -110,13 +129,19 @@ export async function syncMemberRoles(guild, member, desired) {
 // teams + memberships once (no N+1), pre-fetches the member list, then applies
 // roles per player. Returns a summary for the admin reply.
 export async function syncAllMembers(guild) {
-  const [accounts, teams, memberships] = await Promise.all([
+  const [accounts, teams, memberships, activeTournament, tournaments] = await Promise.all([
     acl.getLinkedAccounts(),
     acl.getTeams(),
     acl.getActiveMemberships(),
+    acl.getActiveTournament(),
+    acl.getTournaments(),
   ]);
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const teamByAccount = new Map(memberships.map((m) => [m.account_id, m.team_id]));
+  const participatingTeamIds = activeTournament
+    ? await acl.getTournamentTeamIds(activeTournament.id) : new Set();
+  const tournamentRoleName = activeTournament ? acl.tournamentRoleName(activeTournament.name) : null;
+  const allTournamentRoleNames = tournaments.map((t) => acl.tournamentRoleName(t.name)).filter(Boolean);
 
   // Populate the member cache in one shot (needs GuildMembers intent). Falls
   // back to per-id fetch below if this isn't available.
@@ -130,9 +155,11 @@ export async function syncAllMembers(guild) {
 
     const currentTeam = teamById.get(teamByAccount.get(acc.id)) || null;
     const isCaptain = !!currentTeam && currentTeam.captain_id === acc.id;
+    const inTournament = !!currentTeam && participatingTeamIds.has(currentTeam.id);
     try {
       const r = await syncMemberRoles(guild, member, {
         provinceCode: acc.province, currentTeam, teams, isCaptain,
+        tournamentRoleName, inTournament, allTournamentRoleNames,
       });
       summary.processed += 1;
       if (r.added.length || r.removed.length) summary.changed += 1;
@@ -153,14 +180,26 @@ export async function syncAllMembers(guild) {
 // stale ones can be removed; captaincy is tied to the CURRENT team (matching
 // the website: a player is a captain iff they captain the team they're on).
 export async function syncForAccount(guild, member, account) {
-  const teams = await acl.getTeams();
-  const currentTeamId = await acl.getCurrentTeamId(account.id);
+  const [teams, currentTeamId, activeTournament, tournaments] = await Promise.all([
+    acl.getTeams(),
+    acl.getCurrentTeamId(account.id),
+    acl.getActiveTournament(),
+    acl.getTournaments(),
+  ]);
   const currentTeam = currentTeamId ? teams.find((t) => t.id === currentTeamId) || null : null;
   const isCaptain = !!currentTeam && currentTeam.captain_id === account.id;
+
+  const participatingTeamIds = activeTournament
+    ? await acl.getTournamentTeamIds(activeTournament.id) : new Set();
+  const inTournament = !!currentTeam && participatingTeamIds.has(currentTeam.id);
+
   return syncMemberRoles(guild, member, {
     provinceCode: account.province,
     currentTeam,
     teams,
     isCaptain,
+    tournamentRoleName: activeTournament ? acl.tournamentRoleName(activeTournament.name) : null,
+    inTournament,
+    allTournamentRoleNames: tournaments.map((t) => acl.tournamentRoleName(t.name)).filter(Boolean),
   });
 }

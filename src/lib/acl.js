@@ -25,6 +25,16 @@ export const PROVINCE_ROLE_COLOR = {
 export const CAPTAIN_ROLE = 'Team Captain';
 export const MATCH_PINGS_ROLE = 'Match Pings';
 
+// Per-season participation role, e.g. "ACL Season 4". The tournament name is
+// free text; ensure a single "ACL " prefix whether it's stored as "Season 4"
+// or already "ACL Season 4".
+export const TOURNAMENT_ROLE_COLOR = 0x0a6e92;
+export function tournamentRoleName(name) {
+  const n = String(name || '').trim();
+  if (!n) return null;
+  return /^acl\b/i.test(n) ? n : `ACL ${n}`;
+}
+
 export function provinceRoleName(code) {
   return PROVINCE_ROLE[code] || OOR_ROLE;
 }
@@ -90,6 +100,31 @@ export async function getActiveStageIds() {
   if (!tid) return [];
   const { data } = await supabase.from('stages').select('id').eq('tournament_id', tid);
   return (data || []).map((s) => s.id);
+}
+
+// The active tournament row (id + name), for the per-season participation role.
+export async function getActiveTournament() {
+  const id = await getActiveTournamentId();
+  if (!id) return null;
+  const { data } = await supabase.from('tournaments').select('id, name').eq('id', id).maybeSingle();
+  return data || null;
+}
+
+// All tournaments (id + name) — used to prune stale season roles.
+export async function getTournaments() {
+  const { data, error } = await supabase.from('tournaments').select('id, name');
+  if (error) throw error;
+  return data || [];
+}
+
+// Set of team ids participating in a tournament.
+export async function getTournamentTeamIds(tournamentId) {
+  const { data, error } = await supabase
+    .from('tournament_teams')
+    .select('team_id')
+    .eq('tournament_id', tournamentId);
+  if (error) throw error;
+  return new Set((data || []).map((r) => r.team_id));
 }
 
 // ---- Teams ---------------------------------------------------------------
