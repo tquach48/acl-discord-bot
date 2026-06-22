@@ -30,12 +30,13 @@ export async function ensureRole(guild, name, color, { mentionable = false } = {
   const existing = findRole(guild, name);
   if (existing) return existing;
   log.info(`Creating role "${name}"`);
-  return guild.roles.create({
-    name,
-    color: resolveColor(color),
-    mentionable,
-    reason: 'ACL bot managed role',
-  });
+  // discord.js v14.18+ replaced the singular `color` with a `colors` object
+  // (primary/secondary/tertiary for gradient roles). Only set it when we have
+  // a valid int so a colorless role stays default.
+  const opts = { name, mentionable, reason: 'ACL bot managed role' };
+  const resolved = resolveColor(color);
+  if (resolved !== undefined) opts.colors = { primaryColor: resolved };
+  return guild.roles.create(opts);
 }
 
 export async function ensureMatchPingsRole(guild) {

@@ -61,7 +61,11 @@ client.once(Events.ClientReady, async (c) => {
   try {
     const guild = await client.guilds.fetch(config.guildId);
     await roles.ensureMatchPingsRole(guild).catch((e) => log.warn('ensure pings role', e?.message));
-    await ensureOnboardingMessage();
+    // Non-fatal: if the bot can't post to #onboarding, still start everything else.
+    await ensureOnboardingMessage().catch((e) => log.warn(
+      `Couldn't post the onboarding roles message: ${e?.message}. `
+      + 'Grant the bot View Channel + Send Messages + Embed Links in the onboarding channel, then restart.',
+    ));
     startCron(client, ctx);
     await startRealtime(client, ctx);
   } catch (e) {
