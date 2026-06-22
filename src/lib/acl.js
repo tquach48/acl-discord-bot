@@ -80,10 +80,30 @@ export async function searchAccount(query) {
 export async function getLinkedAccounts() {
   const { data, error } = await supabase
     .from('accounts')
-    .select('id, discord_id, display_name, province')
+    .select('id, discord_id, display_name, province, is_in_discord_server')
     .not('discord_id', 'is', null);
   if (error) throw error;
   return data || [];
+}
+
+// Membership flag the website's signup gate reads. The bot is the source of
+// truth (it's in the server), so it writes this from gateway join/leave events
+// instead of the site hammering Discord's API per user.
+export async function setDiscordMemberByDiscordId(discordId, isIn) {
+  const { error } = await supabase
+    .from('accounts')
+    .update({ is_in_discord_server: isIn, updated_at: new Date().toISOString() })
+    .eq('discord_id', discordId);
+  if (error) throw error;
+}
+
+export async function setMembershipForAccounts(accountIds, isIn) {
+  if (!accountIds.length) return;
+  const { error } = await supabase
+    .from('accounts')
+    .update({ is_in_discord_server: isIn, updated_at: new Date().toISOString() })
+    .in('id', accountIds);
+  if (error) throw error;
 }
 
 // ---- Tournament scope ----------------------------------------------------

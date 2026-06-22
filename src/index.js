@@ -9,6 +9,7 @@ import { commands } from './commands/index.js';
 import { buttonHandlers } from './buttons/assignRoles.js';
 import { startCron } from './notifications/cron.js';
 import { startRealtime } from './notifications/realtime.js';
+import { reconcileAllMembership, setMemberPresence } from './membership.js';
 
 assertConfig();
 
@@ -66,6 +67,7 @@ client.once(Events.ClientReady, async (c) => {
       `Couldn't post the onboarding roles message: ${e?.message}. `
       + 'Grant the bot View Channel + Send Messages + Embed Links in the onboarding channel, then restart.',
     ));
+    await reconcileAllMembership(guild).catch((e) => log.warn('membership reconcile', e?.message));
     startCron(client, ctx);
     await startRealtime(client, ctx);
   } catch (e) {
@@ -73,6 +75,15 @@ client.once(Events.ClientReady, async (c) => {
   }
   // Heartbeat so host log viewers show liveness.
   setInterval(() => log.info('heartbeat'), 5 * 60 * 1000);
+});
+
+// Keep accounts.is_in_discord_server in sync from live join/leave events so
+// the website's signup gate never has to call Discord itself.
+client.on(Events.GuildMemberAdd, (member) => {
+  if (member.guild.id === config.guildId) setMemberPresence(member.id, true);
+});
+client.on(Events.GuildMemberRemove, (member) => {
+  if (member.guild.id === config.guildId) setMemberPresence(member.id, false);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

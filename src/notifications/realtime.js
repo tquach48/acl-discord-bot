@@ -4,6 +4,7 @@ import { log } from '../lib/log.js';
 import { teamLabel, link } from '../lib/format.js';
 import { ensureMatchPingsRole } from '../roles.js';
 import { postMatchNotification } from './matchPosts.js';
+import { reconcileAccountFromRow } from '../membership.js';
 
 // Caches so we can detect *transitions* without relying on REPLICA IDENTITY
 // FULL (Realtime's `old` payload otherwise only carries the primary key).
@@ -92,14 +93,20 @@ export async function startRealtime(client, ctx) {
         else if (row.status === 'completed') await announceFinal(client, ctx, row);
       } catch (e) { log.error('match change', e); }
     })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'accounts' }, async (payload) => {
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'accounts' }, async (payload) => {
       const row = payload.new;
       if (!row?.id) return;
+      // Membership: flip the signup-gate flag on if a linked, flagged-out
+      // account is actually already in the server (e.g. someone who was in
+      // the Discord before they signed up, so GuildMemberAdd won't re-fire).
+      await reconcileAccountFromRow(guild, row);
+      // Province change → role resync.
       const prev = provinceCache.get(row.id);
       const next = row.province ?? null;
-      if (next === prev) return; // only province changes affect roles here
-      provinceCache.set(row.id, next);
-      await resyncAccount(ctx, guild, row.id);
+      if (next !== prev) {
+        provinceCache.set(row.id, next);
+        await resyncAccount(ctx, guild, row.id);
+      }
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, async (payload) => {
       const accId = payload.new?.account_id || payload.old?.account_id;
