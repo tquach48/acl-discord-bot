@@ -13,6 +13,12 @@ export const config = {
   onboardingChannelId: process.env.ONBOARDING_CHANNEL_ID,
   timezone: process.env.TIMEZONE || 'America/Halifax',
   siteUrl: (process.env.SITE_URL || 'https://playacl.ca').replace(/\/$/, ''),
+
+  // Discord-server membership tracking (bot writes accounts.is_in_discord_server
+  // from join/leave events + reconcile + heartbeat for the website's fail-open
+  // gate). DISABLED for now — the site just prompts players to click the invite
+  // without verifying. Flip to true to re-enable the whole machinery.
+  membershipTracking: false,
 };
 
 const REQUIRED = [

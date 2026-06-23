@@ -96,10 +96,8 @@ export async function startRealtime(client, ctx) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'accounts' }, async (payload) => {
       const row = payload.new;
       if (!row?.id) return;
-      // Membership: flip the signup-gate flag on if a linked, flagged-out
-      // account is actually already in the server (e.g. someone who was in
-      // the Discord before they signed up, so GuildMemberAdd won't re-fire).
-      await reconcileAccountFromRow(guild, row);
+      // Membership flag upkeep — disabled while the gate is click-through.
+      if (config.membershipTracking) await reconcileAccountFromRow(guild, row);
       // Province change → role resync.
       const prev = provinceCache.get(row.id);
       const next = row.province ?? null;

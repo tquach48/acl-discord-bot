@@ -67,29 +67,33 @@ client.once(Events.ClientReady, async (c) => {
       `Couldn't post the onboarding roles message: ${e?.message}. `
       + 'Grant the bot View Channel + Send Messages + Embed Links in the onboarding channel, then restart.',
     ));
-    await reconcileAllMembership(guild).catch((e) => log.warn('membership reconcile', e?.message));
+    if (config.membershipTracking) {
+      await reconcileAllMembership(guild).catch((e) => log.warn('membership reconcile', e?.message));
+    }
     startCron(client, ctx);
     await startRealtime(client, ctx);
   } catch (e) {
     log.error('startup', e);
   }
-  // Heartbeat → bot_status table (drives the website's fail-open membership
-  // gate) + host log. Write immediately, then every 2 minutes. The site
-  // treats a heartbeat older than ~7 min as "bot down" and disables the gate.
-  const beat = () => acl.touchHeartbeat()
-    .then(() => log.info('heartbeat'))
-    .catch((e) => log.warn('heartbeat write failed', e?.message));
-  await beat();
+  // Heartbeat. When membership tracking is on, also write bot_status (drives
+  // the website's fail-open gate). Otherwise it's just a host-log liveness tick.
+  const beat = () => {
+    log.info('heartbeat');
+    if (config.membershipTracking) {
+      acl.touchHeartbeat().catch((e) => log.warn('heartbeat write failed', e?.message));
+    }
+  };
+  beat();
   setInterval(beat, 2 * 60 * 1000);
 });
 
-// Keep accounts.is_in_discord_server in sync from live join/leave events so
-// the website's signup gate never has to call Discord itself.
+// Keep accounts.is_in_discord_server in sync from live join/leave events.
+// Disabled unless membership tracking is on (the gate is click-through now).
 client.on(Events.GuildMemberAdd, (member) => {
-  if (member.guild.id === config.guildId) setMemberPresence(member.id, true);
+  if (config.membershipTracking && member.guild.id === config.guildId) setMemberPresence(member.id, true);
 });
 client.on(Events.GuildMemberRemove, (member) => {
-  if (member.guild.id === config.guildId) setMemberPresence(member.id, false);
+  if (config.membershipTracking && member.guild.id === config.guildId) setMemberPresence(member.id, false);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
