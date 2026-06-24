@@ -271,6 +271,24 @@ export async function getNextMatchForTeam(teamId) {
   return rows[0] || null;
 }
 
+// The team's game happening NOW: its live (in-progress) match if any,
+// otherwise the next upcoming one. Used by /code so a captain gets the code
+// for the current game, not the one after it.
+export async function getCurrentMatchForTeam(teamId) {
+  const stageIds = await getActiveStageIds();
+  const { data, error } = await supabase
+    .from('matches')
+    .select('*')
+    .eq('status', 'live')
+    .order('scheduled_at', { ascending: true });
+  if (error) throw error;
+  const live = (data || []).find(
+    (m) => (m.team1_id === teamId || m.team2_id === teamId)
+      && (!stageIds.length || (m.stage_id && stageIds.includes(m.stage_id))),
+  );
+  return live || getNextMatchForTeam(teamId);
+}
+
 // Win/loss standings for the active tournament, from completed matches.
 export async function getStandings() {
   const stageIds = await getActiveStageIds();
