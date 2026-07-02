@@ -11,6 +11,10 @@ export const config = {
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   matchDayChannelId: process.env.MATCH_DAY_CHANNEL_ID,
   onboardingChannelId: process.env.ONBOARDING_CHANNEL_ID,
+  // Optional: free-agent board channel. When set, LFT players are mirrored
+  // there (posted on flip-on, removed on flip-off). Unset = mirror off;
+  // /lft still works (it only writes the DB flag).
+  freeAgentsChannelId: process.env.FREE_AGENTS_CHANNEL_ID || null,
   timezone: process.env.TIMEZONE || 'America/Halifax',
   siteUrl: (process.env.SITE_URL || 'https://playacl.ca').replace(/\/$/, ''),
 

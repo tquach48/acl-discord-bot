@@ -11,14 +11,17 @@ import { reconcileAccountFromRow } from '../membership.js';
 const matchStatus = new Map(); // matchId -> last seen status
 const provinceCache = new Map(); // accountId -> last seen province
 const rankCache = new Map(); // accountId -> last seen riot_tier
+const lftCache = new Map(); // accountId -> last seen looking_for_team
+const faPostByAccount = new Map(); // accountId -> free-agent board message id
 
 async function seedCaches(ctx) {
   const { data: ms } = await ctx.supabase.from('matches').select('id, status');
   for (const m of ms || []) matchStatus.set(m.id, m.status);
-  const { data: accs } = await ctx.supabase.from('accounts').select('id, province, riot_tier');
+  const { data: accs } = await ctx.supabase.from('accounts').select('id, province, riot_tier, looking_for_team');
   for (const a of accs || []) {
     provinceCache.set(a.id, a.province ?? null);
     rankCache.set(a.id, a.riot_tier ?? null);
+    lftCache.set(a.id, !!a.looking_for_team);
   }
   log.info(`Realtime caches seeded (${matchStatus.size} matches, ${provinceCache.size} accounts).`);
 }
@@ -99,6 +102,40 @@ async function announceFinal(client, ctx, match) {
   log.info(`Announced FINAL for match ${match.id}`);
 }
 
+// Mirror LFT players onto the free-agent board channel: post an embed when a
+// player flips LFT on, delete it when they flip off (or find a team). Fail-soft
+// throughout — a missing channel or Discord error never breaks the watcher.
+async function updateFreeAgentBoard(client, ctx, accountId, isLooking) {
+  if (!config.freeAgentsChannelId) return;
+  const channel = await client.channels.fetch(config.freeAgentsChannelId).catch(() => null);
+  if (!channel?.isTextBased()) return;
+
+  const prevId = faPostByAccount.get(accountId);
+  if (prevId) {
+    await channel.messages.delete(prevId).catch(() => {});
+    faPostByAccount.delete(accountId);
+  }
+  if (!isLooking) return;
+
+  try {
+    const acc = await ctx.acl.getAccountById(accountId);
+    if (!acc) return;
+    const roles = [acc.main_role, ...(acc.alt_roles || [])].filter(Boolean);
+    const embed = new EmbedBuilder()
+      .setColor(ACCENT)
+      .setTitle(`🔎 ${acc.display_name || 'Player'} is looking for a team`)
+      .setURL(link.player(acc.id))
+      .addFields(
+        { name: 'Roles', value: roles.length ? roles.join(', ') : '—', inline: true },
+        { name: 'Rank', value: acc.riot_tier ? `${acc.riot_tier}${acc.riot_division ? ` ${acc.riot_division}` : ''}` : 'Unranked', inline: true },
+      )
+      .setFooter({ text: 'Atlantic Canada League · playacl.ca' });
+    if (acc.riot_id) embed.addFields({ name: 'Riot ID', value: acc.riot_id, inline: true });
+    const msg = await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    faPostByAccount.set(accountId, msg.id);
+  } catch (e) { log.warn('free-agent board', e?.message); }
+}
+
 async function resyncAccount(ctx, guild, accountId) {
   try {
     const acc = await ctx.acl.getAccountById(accountId);
@@ -145,6 +182,13 @@ export async function startRealtime(client, ctx) {
         provinceCache.set(row.id, nextProv);
         rankCache.set(row.id, nextTier);
         await resyncAccount(ctx, guild, row.id);
+      }
+      // LFT flip → free-agent board mirror.
+      const prevLft = lftCache.get(row.id);
+      const nextLft = !!row.looking_for_team;
+      if (nextLft !== prevLft) {
+        lftCache.set(row.id, nextLft);
+        await updateFreeAgentBoard(client, ctx, row.id, nextLft);
       }
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, async (payload) => {

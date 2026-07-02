@@ -339,6 +339,27 @@ export async function getStandings() {
     .sort((a, b) => b.wins - a.wins || a.losses - b.losses || a.team.name.localeCompare(b.team.name));
 }
 
+// Self-serve LFT flag (accounts.looking_for_team). The bot authorizes by
+// resolving the caller's OWN discord_id → account, so players can only flip
+// themselves.
+export async function setLookingForTeam(accountId, isLooking) {
+  const { error } = await supabase
+    .from('accounts')
+    .update({ looking_for_team: !!isLooking, updated_at: new Date().toISOString() })
+    .eq('id', accountId);
+  if (error) throw error;
+}
+
+// Captain-only recruiting flag (teams.looking_for_fa). Caller must be
+// verified as the team's captain BEFORE calling this.
+export async function setTeamLookingForFA(teamId, isLooking) {
+  const { error } = await supabase
+    .from('teams')
+    .update({ looking_for_fa: !!isLooking })
+    .eq('id', teamId);
+  if (error) throw error;
+}
+
 // Ingested games for one match — per-game scorelines for result embeds.
 export async function getGamesForMatch(matchId) {
   const { data, error } = await supabase
