@@ -23,6 +23,11 @@ export const config = {
   // gate). DISABLED for now — the site just prompts players to click the invite
   // without verifying. Flip to true to re-enable the whole machinery.
   membershipTracking: false,
+
+  // Rank roles (Iron…Challenger from each player's stored Solo/Duo tier).
+  // DISABLED: syncs skip rank roles entirely and strip any previously
+  // assigned tier role. Set RANK_ROLES=true in the env to re-enable.
+  rankRoles: process.env.RANK_ROLES === 'true',
 };
 
 const REQUIRED = [

@@ -179,12 +179,14 @@ export async function startRealtime(client, ctx) {
       if (!row?.id) return;
       // Membership flag upkeep — disabled while the gate is click-through.
       if (config.membershipTracking) await reconcileAccountFromRow(guild, row);
-      // Province or rank change → role resync (one call covers both).
+      // Province or rank change → role resync (rank only when the rank-roles
+      // feature is enabled; see config.rankRoles).
       const prevProv = provinceCache.get(row.id);
       const nextProv = row.province ?? null;
       const prevTier = rankCache.get(row.id);
       const nextTier = row.riot_tier ?? null;
-      if (nextProv !== prevProv || nextTier !== prevTier) {
+      const rankChanged = config.rankRoles && nextTier !== prevTier;
+      if (nextProv !== prevProv || rankChanged) {
         provinceCache.set(row.id, nextProv);
         rankCache.set(row.id, nextTier);
         await resyncAccount(ctx, guild, row.id);

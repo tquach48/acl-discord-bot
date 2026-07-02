@@ -7,6 +7,7 @@ import {
   rankRoleName, ALL_RANK_ROLE_NAMES, RANK_ROLE_COLOR,
 } from './lib/acl.js';
 import * as acl from './lib/acl.js';
+import { config } from './config.js';
 import { log } from './lib/log.js';
 
 const CAPTAIN_COLOR = 0xf6c026;
@@ -114,9 +115,12 @@ export async function syncMemberRoles(guild, member, desired) {
   }
 
   // --- Rank (at most one, from the player's highest Solo/Duo tier) ---
+  // Feature-flagged OFF by default (config.rankRoles / RANK_ROLES=true).
+  // While disabled we still STRIP any tier role a member holds, so turning
+  // the feature off also cleans up roles handed out while it was on.
   // Unranked (or unknown) tier → no rank role; stale tiers are stripped so a
   // demotion/promotion swaps cleanly.
-  const wantRank = rankRoleName(rankTier);
+  const wantRank = config.rankRoles ? rankRoleName(rankTier) : null;
   if (wantRank) {
     let rr = null;
     try { rr = await ensureRole(guild, wantRank, RANK_ROLE_COLOR[wantRank]); }
