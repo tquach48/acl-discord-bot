@@ -10,7 +10,9 @@ const lastByMatch = new Map();
 
 // Post a match notification, first deleting the previous one for this match.
 // SuppressEmbeds keeps the playacl.ca link clickable (blue) but hides the
-// big auto-unfurled site preview card.
+// big auto-unfurled site preview card. IMPORTANT: the flag hides rich embeds
+// too, so it's only applied when the message doesn't carry its own `embeds`
+// (the final-result embed must render).
 export async function postMatchNotification(channel, matchId, options) {
   const prevId = lastByMatch.get(matchId);
   if (prevId) {
@@ -18,7 +20,10 @@ export async function postMatchNotification(channel, matchId, options) {
     await channel.messages.delete(prevId).catch((e) =>
       log.warn(`Couldn't delete prior notification for match ${matchId}: ${e?.message}`));
   }
-  const msg = await channel.send({ ...options, flags: MessageFlags.SuppressEmbeds });
+  const hasRichEmbeds = Array.isArray(options?.embeds) && options.embeds.length > 0;
+  const msg = await channel.send(
+    hasRichEmbeds ? options : { ...options, flags: MessageFlags.SuppressEmbeds },
+  );
   lastByMatch.set(matchId, msg.id);
   return msg;
 }

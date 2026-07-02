@@ -312,6 +312,17 @@ export async function getStandings() {
     .sort((a, b) => b.wins - a.wins || a.losses - b.losses || a.team.name.localeCompare(b.team.name));
 }
 
+// Ingested games for one match — per-game scorelines for result embeds.
+export async function getGamesForMatch(matchId) {
+  const { data, error } = await supabase
+    .from('games')
+    .select('id, game_number, duration_sec, winner_team_id, blue_team_id, red_team_id')
+    .eq('match_id', matchId)
+    .order('game_number');
+  if (error) throw error;
+  return data || [];
+}
+
 // ---- Calendar events -----------------------------------------------------
 export async function getMatchByIdSafe(id) {
   try { return await getMatchById(id); } catch { return null; }

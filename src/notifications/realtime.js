@@ -1,7 +1,7 @@
-import { MessageFlags } from 'discord.js';
+import { MessageFlags, EmbedBuilder } from 'discord.js';
 import { config } from '../config.js';
 import { log } from '../lib/log.js';
-import { teamLabel, link } from '../lib/format.js';
+import { ACCENT, teamLabel, link } from '../lib/format.js';
 import { ensureMatchPingsRole } from '../roles.js';
 import { postMatchNotification } from './matchPosts.js';
 import { reconcileAccountFromRow } from '../membership.js';
@@ -52,10 +52,44 @@ async function announceFinal(client, ctx, match) {
     ctx.acl.getTeamById(match.team2_id),
   ]);
   const winner = match.score1 > match.score2 ? t1 : match.score2 > match.score1 ? t2 : null;
-  const result = winner ? `🏆 **${teamLabel(winner)}** win` : 'Draw';
+
+  // Rich result embed: series score + per-game scorelines. Per-game data is
+  // best-effort — a score reported without ingested games still announces.
+  const embed = new EmbedBuilder()
+    .setColor(winner?.color
+      ? Number.parseInt(String(winner.color).replace('#', ''), 16)
+      : ACCENT)
+    .setTitle(`🏁 Final — ${teamLabel(t1)} ${match.score1}–${match.score2} ${teamLabel(t2)}`)
+    .setURL(link.match(match.id))
+    .setDescription(winner ? `🏆 **${teamLabel(winner)}** take the series` : 'Series drawn')
+    .setFooter({ text: 'Atlantic Canada League · playacl.ca' });
+
+  try {
+    const games = await ctx.acl.getGamesForMatch(match.id);
+    if (games.length) {
+      const lines = games.map((g) => {
+        const gw = g.winner_team_id === t1?.id ? t1 : g.winner_team_id === t2?.id ? t2 : null;
+        const dur = g.duration_sec
+          ? ` · ${Math.floor(g.duration_sec / 60)}:${String(g.duration_sec % 60).padStart(2, '0')}`
+          : '';
+        return `**Game ${g.game_number}** — ${gw ? `${gw.tag || gw.name} win` : '—'}${dur}`;
+      });
+      embed.addFields({ name: 'Games', value: lines.join('\n').slice(0, 1024), inline: false });
+    }
+  } catch (e) { log.warn('result games lookup', e?.message); }
+
+  if (match.forfeit_team_id) {
+    const absent = match.forfeit_team_id === t1?.id ? t1 : t2;
+    embed.addFields({
+      name: match.forfeit_kind === 'forfeit' ? 'Forfeit' : 'No-show',
+      value: `${teamLabel(absent)} ${match.forfeit_kind === 'forfeit' ? 'forfeited' : 'did not show'} — win credited.`,
+      inline: false,
+    });
+  }
+
   // Final supersedes the LIVE message for this match.
   await postMatchNotification(channel, match.id, {
-    content: `🏁 **Final** — ${teamLabel(t1)} ${match.score1}–${match.score2} ${teamLabel(t2)} · ${result}\n${link.match(match.id)}`,
+    embeds: [embed],
     allowedMentions: { parse: [] },
   });
   log.info(`Announced FINAL for match ${match.id}`);
