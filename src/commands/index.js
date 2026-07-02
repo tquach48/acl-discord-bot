@@ -10,5 +10,7 @@ import code from './code.js';
 import syncroles from './syncroles.js';
 import lft from './lft.js';
 import lfa from './lfa.js';
+import report from './report.js';
+import ingest from './ingest.js';
 
-export const commands = [roles, whoami, profile, team, schedule, mymatches, standings, code, syncroles, lft, lfa];
+export const commands = [roles, whoami, profile, team, schedule, mymatches, standings, code, syncroles, lft, lfa, report, ingest];

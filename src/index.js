@@ -7,6 +7,8 @@ import * as roles from './roles.js';
 import { supabase } from './supabase.js';
 import { commands } from './commands/index.js';
 import { buttonHandlers } from './buttons/assignRoles.js';
+import { handleCheckinButton } from './flows/checkin.js';
+import { handleMvpButton } from './flows/mvp.js';
 import { startCron } from './notifications/cron.js';
 import { startRealtime } from './notifications/realtime.js';
 import { reconcileAllMembership, setMemberPresence } from './membership.js';
@@ -105,6 +107,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } else if (interaction.isButton()) {
       const handler = buttonHandlers[interaction.customId];
       if (handler) await handler(interaction, ctx);
+      // Dynamic-id buttons (per-match / per-player) route by prefix.
+      else if (interaction.customId.startsWith('acl:checkin:')) await handleCheckinButton(interaction, ctx);
+      else if (interaction.customId.startsWith('acl:mvp:')) await handleMvpButton(interaction, ctx);
     }
   } catch (e) {
     log.error(`interaction ${interaction.commandName || interaction.customId}`, e);

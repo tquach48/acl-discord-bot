@@ -4,6 +4,7 @@ import { log } from '../lib/log.js';
 import { ACCENT, teamLabel, link } from '../lib/format.js';
 import { ensureMatchPingsRole } from '../roles.js';
 import { postMatchNotification } from './matchPosts.js';
+import { postMvpPoll } from '../flows/mvp.js';
 import { reconcileAccountFromRow } from '../membership.js';
 
 // Caches so we can detect *transitions* without relying on REPLICA IDENTITY
@@ -165,7 +166,12 @@ export async function startRealtime(client, ctx) {
       if (row.status === prev) return;
       try {
         if (row.status === 'live') await announceLive(client, ctx, guild, row);
-        else if (row.status === 'completed') await announceFinal(client, ctx, row);
+        else if (row.status === 'completed') {
+          await announceFinal(client, ctx, row);
+          // Community MVP poll (only posts when the match has ingested
+          // players; fail-soft so the result embed never suffers).
+          await postMvpPoll(client, ctx, row).catch((e) => log.warn('mvp poll', e?.message));
+        }
       } catch (e) { log.error('match change', e); }
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'accounts' }, async (payload) => {

@@ -371,6 +371,78 @@ export async function getGamesForMatch(matchId) {
   return data || [];
 }
 
+// ---- Check-ins (match_checkins, bot-written) ------------------------------
+export async function upsertCheckin(matchId, teamId, status, respondedBy) {
+  const { error } = await supabase
+    .from('match_checkins')
+    .upsert(
+      { match_id: matchId, team_id: teamId, status, responded_by: respondedBy, responded_at: new Date().toISOString() },
+      { onConflict: 'match_id,team_id' },
+    );
+  if (error) throw error;
+}
+
+export async function getCheckinsForMatch(matchId) {
+  const { data, error } = await supabase
+    .from('match_checkins')
+    .select('team_id, status, responded_at')
+    .eq('match_id', matchId);
+  if (error) throw error;
+  return data || [];
+}
+
+// ---- Bot-path score report (bot_report_match_score RPC) -------------------
+// Authorizes inside Postgres by discord id (captain on match / admin).
+export async function reportMatchScoreAsBot(discordId, matchId, s1, s2) {
+  const { error } = await supabase.rpc('bot_report_match_score', {
+    p_discord_id: discordId,
+    p_match_id: matchId,
+    p_team1_score: s1,
+    p_team2_score: s2,
+  });
+  if (error) throw error;
+}
+
+// ---- MVP votes -------------------------------------------------------------
+export async function castMvpVote(matchId, accountId, voterDiscordId) {
+  const { error } = await supabase
+    .from('mvp_votes')
+    .upsert(
+      { match_id: matchId, account_id: accountId, voter_discord_id: voterDiscordId },
+      { onConflict: 'match_id,voter_discord_id' },
+    );
+  if (error) throw error;
+}
+
+export async function getMvpTally(matchId) {
+  const { data, error } = await supabase
+    .from('mvp_votes')
+    .select('account_id')
+    .eq('match_id', matchId);
+  if (error) throw error;
+  const counts = new Map();
+  for (const v of data || []) counts.set(v.account_id, (counts.get(v.account_id) || 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+// Distinct rostered players who appeared in a match's ingested games — the
+// MVP poll candidates. Unrostered (account_id null) rows are skipped.
+export async function getMatchParticipants(matchId) {
+  const games = await getGamesForMatch(matchId);
+  if (!games.length) return [];
+  const { data, error } = await supabase
+    .from('game_player_stats')
+    .select('account_id, summoner_name, game_id')
+    .in('game_id', games.map((g) => g.id));
+  if (error) throw error;
+  const seen = new Map();
+  for (const row of data || []) {
+    if (!row.account_id || seen.has(row.account_id)) continue;
+    seen.set(row.account_id, { accountId: row.account_id, name: row.summoner_name || 'Player' });
+  }
+  return [...seen.values()];
+}
+
 // ---- Calendar events -----------------------------------------------------
 export async function getMatchByIdSafe(id) {
   try { return await getMatchById(id); } catch { return null; }
