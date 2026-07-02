@@ -10,12 +10,16 @@ import { reconcileAccountFromRow } from '../membership.js';
 // FULL (Realtime's `old` payload otherwise only carries the primary key).
 const matchStatus = new Map(); // matchId -> last seen status
 const provinceCache = new Map(); // accountId -> last seen province
+const rankCache = new Map(); // accountId -> last seen riot_tier
 
 async function seedCaches(ctx) {
   const { data: ms } = await ctx.supabase.from('matches').select('id, status');
   for (const m of ms || []) matchStatus.set(m.id, m.status);
-  const { data: accs } = await ctx.supabase.from('accounts').select('id, province');
-  for (const a of accs || []) provinceCache.set(a.id, a.province ?? null);
+  const { data: accs } = await ctx.supabase.from('accounts').select('id, province, riot_tier');
+  for (const a of accs || []) {
+    provinceCache.set(a.id, a.province ?? null);
+    rankCache.set(a.id, a.riot_tier ?? null);
+  }
   log.info(`Realtime caches seeded (${matchStatus.size} matches, ${provinceCache.size} accounts).`);
 }
 
@@ -132,11 +136,14 @@ export async function startRealtime(client, ctx) {
       if (!row?.id) return;
       // Membership flag upkeep — disabled while the gate is click-through.
       if (config.membershipTracking) await reconcileAccountFromRow(guild, row);
-      // Province change → role resync.
-      const prev = provinceCache.get(row.id);
-      const next = row.province ?? null;
-      if (next !== prev) {
-        provinceCache.set(row.id, next);
+      // Province or rank change → role resync (one call covers both).
+      const prevProv = provinceCache.get(row.id);
+      const nextProv = row.province ?? null;
+      const prevTier = rankCache.get(row.id);
+      const nextTier = row.riot_tier ?? null;
+      if (nextProv !== prevProv || nextTier !== prevTier) {
+        provinceCache.set(row.id, nextProv);
+        rankCache.set(row.id, nextTier);
         await resyncAccount(ctx, guild, row.id);
       }
     })

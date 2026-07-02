@@ -4,6 +4,7 @@
 import {
   provinceRoleName, ALL_PROVINCE_ROLE_NAMES, PROVINCE_ROLE_COLOR,
   CAPTAIN_ROLE, MATCH_PINGS_ROLE, TOURNAMENT_ROLE_COLOR,
+  rankRoleName, ALL_RANK_ROLE_NAMES, RANK_ROLE_COLOR,
 } from './lib/acl.js';
 import * as acl from './lib/acl.js';
 import { log } from './lib/log.js';
@@ -53,12 +54,13 @@ function roleErr(name, e) {
   return `${name} — ${e?.message || 'failed'}`;
 }
 
-// Apply the desired province / team / captain roles to a guild member.
-// `desired`: { provinceCode, currentTeam, teams, isCaptain }
+// Apply the desired province / team / captain / rank roles to a guild member.
+// `desired`: { provinceCode, currentTeam, teams, isCaptain, rankTier, ... }
 export async function syncMemberRoles(guild, member, desired) {
   const {
     provinceCode, currentTeam, teams, isCaptain,
     tournamentRoleName = null, inTournament = false, allTournamentRoleNames = [],
+    rankTier = null,
   } = desired;
   const added = [];
   const removed = [];
@@ -109,6 +111,20 @@ export async function syncMemberRoles(guild, member, desired) {
     await tryAdd(cap);
   } else {
     await tryRemove(findRole(guild, CAPTAIN_ROLE));
+  }
+
+  // --- Rank (at most one, from the player's highest Solo/Duo tier) ---
+  // Unranked (or unknown) tier → no rank role; stale tiers are stripped so a
+  // demotion/promotion swaps cleanly.
+  const wantRank = rankRoleName(rankTier);
+  if (wantRank) {
+    let rr = null;
+    try { rr = await ensureRole(guild, wantRank, RANK_ROLE_COLOR[wantRank]); }
+    catch (e) { errors.push(roleErr(wantRank, e)); }
+    await tryAdd(rr);
+  }
+  for (const name of ALL_RANK_ROLE_NAMES) {
+    if (name !== wantRank) await tryRemove(findRole(guild, name));
   }
 
   // --- Tournament / season (e.g. "ACL Season 4") ---
@@ -165,6 +181,7 @@ export async function syncAllMembers(guild) {
       const r = await syncMemberRoles(guild, member, {
         provinceCode: acc.province, currentTeam, teams, isCaptain,
         tournamentRoleName, inTournament, allTournamentRoleNames,
+        rankTier: acc.riot_tier,
       });
       summary.processed += 1;
       if (r.added.length || r.removed.length) summary.changed += 1;
@@ -206,5 +223,6 @@ export async function syncForAccount(guild, member, account) {
     tournamentRoleName: activeTournament ? acl.tournamentRoleName(activeTournament.name) : null,
     inTournament,
     allTournamentRoleNames: tournaments.map((t) => acl.tournamentRoleName(t.name)).filter(Boolean),
+    rankTier: account.riot_tier,
   });
 }

@@ -39,6 +39,33 @@ export function provinceRoleName(code) {
   return PROVINCE_ROLE[code] || OOR_ROLE;
 }
 
+// ---- Rank → Discord role mapping ------------------------------------------
+// One role per Riot tier (accounts.riot_tier — the player's HIGHEST Solo/Duo
+// tier, refreshed by the website's rank sync). Unranked players get no rank
+// role; a player holds at most one.
+export const RANK_TIERS = [
+  'IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM',
+  'EMERALD', 'DIAMOND', 'MASTER', 'GRANDMASTER', 'CHALLENGER',
+];
+export function rankRoleName(tier) {
+  const t = String(tier || '').toUpperCase();
+  if (!RANK_TIERS.includes(t)) return null;
+  return t.charAt(0) + t.slice(1).toLowerCase(); // "Diamond"
+}
+export const ALL_RANK_ROLE_NAMES = RANK_TIERS.map((t) => rankRoleName(t));
+export const RANK_ROLE_COLOR = {
+  Iron:        0x51484a,
+  Bronze:      0x8c523a,
+  Silver:      0x80989d,
+  Gold:        0xcd8837,
+  Platinum:    0x4e9996,
+  Emerald:     0x149c3a,
+  Diamond:     0x576bce,
+  Master:      0x9d48e0,
+  Grandmaster: 0xcd4545,
+  Challenger:  0xf4c874,
+};
+
 // ---- Accounts ------------------------------------------------------------
 export async function getAccountByDiscordId(discordId) {
   const { data, error } = await supabase
@@ -80,7 +107,7 @@ export async function searchAccount(query) {
 export async function getLinkedAccounts() {
   const { data, error } = await supabase
     .from('accounts')
-    .select('id, discord_id, display_name, province, is_in_discord_server')
+    .select('id, discord_id, display_name, province, is_in_discord_server, riot_tier')
     .not('discord_id', 'is', null);
   if (error) throw error;
   return data || [];
