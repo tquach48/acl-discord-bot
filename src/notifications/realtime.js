@@ -161,6 +161,9 @@ export async function startRealtime(client, ctx) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, async (payload) => {
       const row = payload.new;
       if (!row?.id) return;
+      // Byes are single-team auto-wins with no opponent / games — nothing to
+      // announce (a "Final — TeamA vs —" embed would be nonsense).
+      if (row.is_bye) { matchStatus.set(row.id, row.status); return; }
       const prev = matchStatus.get(row.id);
       matchStatus.set(row.id, row.status);
       if (row.status === prev) return;
