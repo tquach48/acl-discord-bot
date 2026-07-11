@@ -32,6 +32,13 @@ export async function buildProfileEmbed(acc, ctx) {
 
   if (roles.length) e.addFields({ name: 'Roles', value: roles.join(', '), inline: false });
   if (acc.riot_id) e.addFields({ name: 'Riot ID', value: acc.riot_id, inline: true });
+  if (acc.twitch_username) {
+    e.addFields({
+      name: 'Twitch',
+      value: `[twitch.tv/${acc.twitch_username}](https://twitch.tv/${acc.twitch_username})`,
+      inline: true,
+    });
+  }
   if (acc.looking_for_team) {
     e.addFields({ name: 'Status', value: '🔎 Looking for a team', inline: true });
   }

@@ -43,9 +43,24 @@ async function announceLive(client, ctx, guild, match) {
   let pingRole = null;
   try { pingRole = await ensureMatchPingsRole(guild); } catch (e) { log.warn('match-pings role', e?.message); }
   const roleIds = pingRole ? [pingRole.id] : [];
+
+  // Player streams — anyone on either roster with a linked Twitch account.
+  // Best-effort: a failed lookup never blocks the announcement.
+  let streamsLine = '';
+  try {
+    const streamers = await ctx.acl.getTeamStreamers([match.team1_id, match.team2_id]);
+    if (streamers.length) {
+      streamsLine = '📡 Player streams: ' + streamers
+        .slice(0, 6)
+        .map((s) => `[${s.display_name || s.twitch_username}](<https://twitch.tv/${s.twitch_username}>)`)
+        .join(' · ');
+    }
+  } catch (e) { log.warn('live streamers lookup', e?.message); }
+
   const content = [
     `🔴 **LIVE NOW** — ${teamLabel(t1)} vs ${teamLabel(t2)}`,
     `📺 ${link.match(match.id)}`,
+    streamsLine,
     pingRole ? `<@&${pingRole.id}>` : '',
   ].filter(Boolean).join('\n');
   await postMatchNotification(channel, match.id, { content, allowedMentions: { roles: roleIds } });

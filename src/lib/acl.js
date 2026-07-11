@@ -212,9 +212,59 @@ export async function getTeamByName(name) {
 }
 
 export async function getCaptainTeams(accountId) {
+  // Primary captain (teams.captain_id) ...
   const { data, error } = await supabase.from('teams').select(TEAM_COLS).eq('captain_id', accountId);
   if (error) throw error;
-  return data || [];
+  const teams = data || [];
+  // ... plus co-captain memberships (team_members.is_captain, 0084) — scoped
+  // to the ACTIVE tournament, matching the server-side is_team_captain (0086):
+  // old-season rows stay open as history and must not confer powers.
+  const activeTid = await getActiveTournamentId();
+  if (!activeTid) return teams;
+  const { data: coRows, error: coErr } = await supabase
+    .from('team_members')
+    .select('team_id')
+    .eq('account_id', accountId)
+    .eq('is_captain', true)
+    .eq('tournament_id', activeTid)
+    .is('left_at', null);
+  if (coErr) throw coErr;
+  const have = new Set(teams.map((t) => t.id));
+  const extraIds = [...new Set((coRows || []).map((r) => r.team_id))].filter((id) => !have.has(id));
+  if (extraIds.length) {
+    const { data: extra, error: exErr } = await supabase
+      .from('teams').select(TEAM_COLS).in('id', extraIds);
+    if (exErr) throw exErr;
+    teams.push(...(extra || []));
+  }
+  return teams;
+}
+
+// Rostered players on the given teams that have a linked Twitch account.
+// Returns [{ display_name, twitch_username, team_id }] for live-announce embeds.
+export async function getTeamStreamers(teamIds) {
+  const ids = (teamIds || []).filter(Boolean);
+  if (!ids.length) return [];
+  const { data: mems, error } = await supabase
+    .from('team_members')
+    .select('account_id, team_id')
+    .in('team_id', ids)
+    .is('left_at', null);
+  if (error) throw error;
+  const accIds = [...new Set((mems || []).map((m) => m.account_id))];
+  if (!accIds.length) return [];
+  const { data: accs, error: aErr } = await supabase
+    .from('accounts')
+    .select('id, display_name, twitch_username')
+    .in('id', accIds)
+    .not('twitch_username', 'is', null);
+  if (aErr) throw aErr;
+  const teamByAcc = new Map((mems || []).map((m) => [m.account_id, m.team_id]));
+  return (accs || []).map((a) => ({
+    display_name: a.display_name,
+    twitch_username: a.twitch_username,
+    team_id: teamByAcc.get(a.id) || null,
+  }));
 }
 
 // ---- Roster --------------------------------------------------------------
