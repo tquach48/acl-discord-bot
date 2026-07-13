@@ -46,7 +46,7 @@ async function postCheckin(client, ctx, match) {
       `🕒 ${formatTime(match.scheduled_at)}`,
       '',
       '**Captains:** press a button below to check in for your team.',
-      'No response by 12h before the match flags it for the admins.',
+      "Haven't checked in 12h before the match? You'll get a reminder here.",
     ].join('\n'))
     .setFooter({ text: 'Atlantic Canada League · playacl.ca' });
   await channel.send({
@@ -67,17 +67,21 @@ async function flagUnconfirmed(client, ctx, match) {
 
   const channel = await client.channels.fetch(config.matchDayChannelId).catch(() => null);
   if (!channel?.isTextBased()) return;
+  const [t1, t2] = await Promise.all([
+    ctx.acl.getTeamById(match.team1_id),
+    ctx.acl.getTeamById(match.team2_id),
+  ]);
   const teams = await Promise.all(missing.map((id) => ctx.acl.getTeamById(id)));
   const lines = [
-    `🚨 **Check-in flag** — ${link.match(match.id)}`,
+    `⏰ **Match reminder** — ${teamLabel(t1)} vs ${teamLabel(t2)} in ~12h`,
+    link.match(match.id),
     teams.length
-      ? `No check-in from: ${teams.map((t) => `**${teamLabel(t)}**`).join(', ')} (match in ~12h)`
+      ? `Still waiting on a check-in from: ${teams.map((t) => `**${teamLabel(t)}**`).join(', ')}`
       : null,
     needsResched ? 'A team has requested a reschedule.' : null,
-    'Admins: chase captains or use the no-show flow on the match page.',
   ].filter(Boolean);
   await channel.send({ content: lines.join('\n'), allowedMentions: { parse: [] }, flags: MessageFlags.SuppressEmbeds });
-  log.info(`Flagged unconfirmed check-in for match ${match.id}`);
+  log.info(`Posted prematch reminder for match ${match.id}`);
 }
 
 // Called from the 5-min cron sweep.
