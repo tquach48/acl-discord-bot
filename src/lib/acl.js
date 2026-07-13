@@ -421,26 +421,6 @@ export async function getGamesForMatch(matchId) {
   return data || [];
 }
 
-// ---- Check-ins (match_checkins, bot-written) ------------------------------
-export async function upsertCheckin(matchId, teamId, status, respondedBy) {
-  const { error } = await supabase
-    .from('match_checkins')
-    .upsert(
-      { match_id: matchId, team_id: teamId, status, responded_by: respondedBy, responded_at: new Date().toISOString() },
-      { onConflict: 'match_id,team_id' },
-    );
-  if (error) throw error;
-}
-
-export async function getCheckinsForMatch(matchId) {
-  const { data, error } = await supabase
-    .from('match_checkins')
-    .select('team_id, status, responded_at')
-    .eq('match_id', matchId);
-  if (error) throw error;
-  return data || [];
-}
-
 // ---- Bot-path score report (bot_report_match_score RPC) -------------------
 // Authorizes inside Postgres by discord id (captain on match / admin).
 export async function reportMatchScoreAsBot(discordId, matchId, s1, s2) {

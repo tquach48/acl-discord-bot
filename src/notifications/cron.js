@@ -4,7 +4,6 @@ import { config } from '../config.js';
 import { log } from '../lib/log.js';
 import { ACCENT, formatTime, teamLabel, link } from '../lib/format.js';
 import { postMatchNotification } from './matchPosts.js';
-import { checkCheckins } from '../flows/checkin.js';
 
 // In-memory de-dup. Windows below are wider than the 5-min cron interval, so
 // each match hits its window exactly once; the Set prevents a double-send
@@ -85,11 +84,6 @@ export function startCron(client, ctx) {
   // Every 5 minutes: match reminders.
   cron.schedule('*/5 * * * *', () => {
     checkMatchReminders(client, ctx).catch((e) => log.error('cron:matches', e));
-  }, { timezone: config.timezone });
-
-  // Every 5 minutes: pre-match check-ins (36h post, 12h flag).
-  cron.schedule('*/5 * * * *', () => {
-    checkCheckins(client, ctx).catch((e) => log.error('cron:checkins', e));
   }, { timezone: config.timezone });
 
   // 09:00 Atlantic daily: today's calendar deadlines/milestones.
