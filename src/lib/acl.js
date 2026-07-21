@@ -303,14 +303,19 @@ export async function getActiveMemberships() {
   return data || [];
 }
 
-// The player's current active team id (null if free agent).
+// The player's current team id in the MAIN tournament (null if free agent).
+// A player can be rostered in several tournaments at once now, so this must be
+// scoped to the active tournament — the one everything else in the bot targets
+// — otherwise it could return an arbitrary team from a different tournament.
 export async function getCurrentTeamId(accountId) {
-  const { data, error } = await supabase
+  const activeTid = await getActiveTournamentId();
+  let q = supabase
     .from('team_members')
     .select('team_id')
     .eq('account_id', accountId)
-    .is('left_at', null)
-    .limit(1);
+    .is('left_at', null);
+  if (activeTid) q = q.eq('tournament_id', activeTid);
+  const { data, error } = await q.limit(1);
   if (error) throw error;
   return data?.[0]?.team_id || null;
 }
