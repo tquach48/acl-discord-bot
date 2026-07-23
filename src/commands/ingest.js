@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { link, teamLabel } from '../lib/format.js';
+import { addTournamentOption, resolveTournament } from '../lib/tournamentOption.js';
 
 // /ingest — points the captain at their current match's ingest panel with the
 // exact steps. The actual Riot fetch + translation runs in the site (it holds
@@ -7,15 +8,20 @@ import { link, teamLabel } from '../lib/format.js';
 // whole translator. This keeps one ingest path with the deep link one press
 // away. (Full bot-side ingest = follow-up if ever needed.)
 export default {
-  data: new SlashCommandBuilder()
-    .setName('ingest')
-    .setDescription('How to ingest your game stats (links your current match page)'),
+  data: addTournamentOption(
+    new SlashCommandBuilder()
+      .setName('ingest')
+      .setDescription('How to ingest your game stats (links your current match page)'),
+    'Link a match in another tournament (defaults to the main one)',
+  ),
   async execute(interaction, ctx) {
     const acc = await ctx.acl.getAccountByDiscordId(interaction.user.id);
-    const team = acc ? await ctx.acl.getCurrentTeamId(acc.id).then(
-      (id) => (id ? ctx.acl.getTeamById(id) : null),
-    ) : null;
-    const match = team ? await ctx.acl.getCurrentMatchForTeam(team.id) : null;
+    const t = await resolveTournament(interaction, ctx);
+    if (t.error) return interaction.reply({ content: t.error, flags: MessageFlags.Ephemeral });
+
+    const teamId = acc ? await ctx.acl.getCurrentTeamId(acc.id, t.id) : null;
+    const team = teamId ? await ctx.acl.getTeamById(teamId) : null;
+    const match = team ? await ctx.acl.getCurrentMatchForTeam(team.id, t.id) : null;
 
     const steps = [
       '**Ingest a game in 3 steps:**',
@@ -25,7 +31,8 @@ export default {
     ];
     if (match && team) {
       const opp = await ctx.acl.getTeamById(match.team1_id === team.id ? match.team2_id : match.team1_id);
-      steps.push('', `Current match: **${teamLabel(team)} vs ${teamLabel(opp)}**`);
+      const where = t.isMain ? '' : ` · ${t.name}`;
+      steps.push('', `Current match: **${teamLabel(team)} vs ${teamLabel(opp)}**${where}`);
     }
     return interaction.reply({ content: steps.join('\n'), flags: MessageFlags.Ephemeral });
   },

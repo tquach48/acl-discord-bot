@@ -11,6 +11,7 @@ import { handleMvpButton } from './flows/mvp.js';
 import { startCron } from './notifications/cron.js';
 import { startRealtime } from './notifications/realtime.js';
 import { reconcileAllMembership, setMemberPresence } from './membership.js';
+import { autocompleteTournaments, TOURNAMENT_OPTION_NAME } from './lib/tournamentOption.js';
 
 assertConfig();
 
@@ -99,6 +100,15 @@ client.on(Events.GuildMemberRemove, (member) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    if (interaction.isAutocomplete()) {
+      // Only the shared `tournament:` option uses autocomplete today.
+      if (interaction.options.getFocused(true)?.name === TOURNAMENT_OPTION_NAME) {
+        await autocompleteTournaments(interaction, ctx);
+      } else {
+        await interaction.respond([]);
+      }
+      return;
+    }
     if (interaction.isChatInputCommand()) {
       const cmd = commandMap.get(interaction.commandName);
       if (!cmd) return;
@@ -111,6 +121,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (e) {
     log.error(`interaction ${interaction.commandName || interaction.customId}`, e);
+    // Autocomplete can't be replied to — just answer empty and move on.
+    if (interaction.isAutocomplete?.()) {
+      interaction.respond([]).catch(() => {});
+      return;
+    }
     const msg = { content: 'Something went wrong. Please try again.', flags: MessageFlags.Ephemeral };
     if (interaction.deferred || interaction.replied) interaction.editReply(msg).catch(() => {});
     else interaction.reply(msg).catch(() => {});

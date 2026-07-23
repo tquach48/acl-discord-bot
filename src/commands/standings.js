@@ -1,13 +1,18 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { ACCENT, link } from '../lib/format.js';
+import { addTournamentOption, resolveTournament, scopeSuffix } from '../lib/tournamentOption.js';
 
 export default {
-  data: new SlashCommandBuilder()
-    .setName('standings')
-    .setDescription('Current ACL standings (W–L)'),
+  data: addTournamentOption(
+    new SlashCommandBuilder()
+      .setName('standings')
+      .setDescription('Current ACL standings (W–L)'),
+  ),
   async execute(interaction, ctx) {
     await interaction.deferReply();
-    const rows = await ctx.acl.getStandings();
+    const t = await resolveTournament(interaction, ctx);
+    if (t.error) return interaction.editReply({ content: t.error });
+    const rows = await ctx.acl.getStandings(t.id);
     const body = rows.length
       ? rows
           .map((r, i) => {
@@ -19,7 +24,7 @@ export default {
       : 'No completed matches yet.';
     const embed = new EmbedBuilder()
       .setColor(ACCENT)
-      .setTitle('🏆 Standings')
+      .setTitle(`🏆 Standings${scopeSuffix(t)}`)
       .setDescription('```\n' + body.slice(0, 3900) + '\n```')
       .setURL(link.standings())
       .setFooter({ text: 'Atlantic Canada League · playacl.ca' });

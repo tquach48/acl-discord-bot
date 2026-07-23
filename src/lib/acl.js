@@ -159,6 +159,37 @@ export async function getActiveStageIds() {
   return (data || []).map((s) => s.id);
 }
 
+// ---- Tournament scoping ---------------------------------------------------
+// The bot targets the MAIN tournament everywhere. Commands may override it by
+// passing an explicit tournament id; every helper below takes an optional
+// tournamentId that falls back to the active/main one when omitted.
+export async function resolveTournamentId(tournamentId) {
+  return tournamentId || (await getActiveTournamentId());
+}
+
+export async function getStageIdsFor(tournamentId) {
+  const tid = await resolveTournamentId(tournamentId);
+  if (!tid) return [];
+  const { data } = await supabase.from('stages').select('id').eq('tournament_id', tid);
+  return (data || []).map((s) => s.id);
+}
+
+// Find a tournament by name or slug for the `tournament:` command option.
+// Exact (case-insensitive) match wins; otherwise a unique prefix/substring.
+export async function findTournament(query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return null;
+  const all = await getTournaments();
+  const exact = all.find(
+    (t) => String(t.name || '').toLowerCase() === q || String(t.slug || '').toLowerCase() === q,
+  );
+  if (exact) return exact;
+  const partial = all.filter(
+    (t) => String(t.name || '').toLowerCase().includes(q) || String(t.slug || '').toLowerCase().includes(q),
+  );
+  return partial.length === 1 ? partial[0] : null;
+}
+
 // The active tournament row (id + name), for the per-season participation role.
 export async function getActiveTournament() {
   const id = await getActiveTournamentId();
@@ -167,9 +198,13 @@ export async function getActiveTournament() {
   return data || null;
 }
 
-// All tournaments (id + name) — used to prune stale season roles.
+// All tournaments — used to prune stale season roles and to resolve the
+// `tournament:` command option (name/slug lookup + autocomplete).
 export async function getTournaments() {
-  const { data, error } = await supabase.from('tournaments').select('id, name');
+  const { data, error } = await supabase
+    .from('tournaments')
+    .select('id, name, slug, status')
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
 }
@@ -211,15 +246,16 @@ export async function getTeamByName(name) {
   return data?.[0] || null;
 }
 
-export async function getCaptainTeams(accountId) {
-  // Primary captain (teams.captain_id) ...
+export async function getCaptainTeams(accountId, tournamentId) {
+  // Primary captain (teams.captain_id) — global, applies in every tournament.
   const { data, error } = await supabase.from('teams').select(TEAM_COLS).eq('captain_id', accountId);
   if (error) throw error;
   const teams = data || [];
   // ... plus co-captain memberships (team_members.is_captain, 0084) — scoped
-  // to the ACTIVE tournament, matching the server-side is_team_captain (0086):
-  // old-season rows stay open as history and must not confer powers.
-  const activeTid = await getActiveTournamentId();
+  // to ONE tournament (main by default), matching the server-side
+  // is_team_captain_in (0100): old-season rows stay open as history and must
+  // not confer powers.
+  const activeTid = await resolveTournamentId(tournamentId);
   if (!activeTid) return teams;
   const { data: coRows, error: coErr } = await supabase
     .from('team_members')
@@ -242,14 +278,17 @@ export async function getCaptainTeams(accountId) {
 
 // Rostered players on the given teams that have a linked Twitch account.
 // Returns [{ display_name, twitch_username, team_id }] for live-announce embeds.
-export async function getTeamStreamers(teamIds) {
+export async function getTeamStreamers(teamIds, tournamentId) {
   const ids = (teamIds || []).filter(Boolean);
   if (!ids.length) return [];
-  const { data: mems, error } = await supabase
+  const tid = await resolveTournamentId(tournamentId);
+  let mq = supabase
     .from('team_members')
     .select('account_id, team_id')
     .in('team_id', ids)
     .is('left_at', null);
+  if (tid) mq = mq.eq('tournament_id', tid);
+  const { data: mems, error } = await mq;
   if (error) throw error;
   const accIds = [...new Set((mems || []).map((m) => m.account_id))];
   if (!accIds.length) return [];
@@ -270,12 +309,18 @@ export async function getTeamStreamers(teamIds) {
 // ---- Roster --------------------------------------------------------------
 // Two queries (members, then accounts) to avoid relying on embedded-join
 // aliases, which have bitten the website before.
-export async function getRoster(teamId) {
-  const { data: mems, error } = await supabase
+// Scoped to ONE tournament (main unless told otherwise): a team entered in
+// several tournaments has a separate roster in each, so an unscoped read would
+// return the union of all of them.
+export async function getRoster(teamId, tournamentId) {
+  const tid = await resolveTournamentId(tournamentId);
+  let q = supabase
     .from('team_members')
     .select('account_id, role, is_sub')
     .eq('team_id', teamId)
     .is('left_at', null);
+  if (tid) q = q.eq('tournament_id', tid);
+  const { data: mems, error } = await q;
   if (error) throw error;
   const ids = (mems || []).map((m) => m.account_id);
   if (!ids.length) return [];
@@ -287,18 +332,24 @@ export async function getRoster(teamId) {
   return (mems || []).map((m) => ({ ...m, account: byId.get(m.account_id) || null }));
 }
 
-export async function getRosterDiscordIds(teamId) {
-  const roster = await getRoster(teamId);
+export async function getRosterDiscordIds(teamId, tournamentId) {
+  const roster = await getRoster(teamId, tournamentId);
   return roster.map((r) => r.account?.discord_id).filter(Boolean);
 }
 
-// Every active (not-left) team membership, for bulk role syncs without an
-// N+1 query per player.
-export async function getActiveMemberships() {
-  const { data, error } = await supabase
+// Every active team membership in ONE tournament (main by default), for bulk
+// role syncs without an N+1 query per player. MUST stay scoped: a player can
+// be rostered in several tournaments at once, and an unscoped read would make
+// "which team is this player on" ambiguous — the caller builds an
+// account → team map, so a second row would silently win.
+export async function getActiveMemberships(tournamentId) {
+  const tid = await resolveTournamentId(tournamentId);
+  let q = supabase
     .from('team_members')
     .select('account_id, team_id')
     .is('left_at', null);
+  if (tid) q = q.eq('tournament_id', tid);
+  const { data, error } = await q;
   if (error) throw error;
   return data || [];
 }
@@ -307,8 +358,8 @@ export async function getActiveMemberships() {
 // A player can be rostered in several tournaments at once now, so this must be
 // scoped to the active tournament — the one everything else in the bot targets
 // — otherwise it could return an arbitrary team from a different tournament.
-export async function getCurrentTeamId(accountId) {
-  const activeTid = await getActiveTournamentId();
+export async function getCurrentTeamId(accountId, tournamentId) {
+  const activeTid = await resolveTournamentId(tournamentId);
   let q = supabase
     .from('team_members')
     .select('team_id')
@@ -329,14 +380,14 @@ export async function getMatchById(id) {
 
 // Upcoming matches, scoped to the active tournament's stages. Optionally
 // filtered to one team and/or capped.
-export async function getUpcomingMatches({ teamId = null, limit = null } = {}) {
+export async function getUpcomingMatches({ teamId = null, limit = null, tournamentId = null } = {}) {
   const { data, error } = await supabase
     .from('matches')
     .select('*')
     .eq('status', 'upcoming')
     .order('scheduled_at', { ascending: true });
   if (error) throw error;
-  const stageIds = await getActiveStageIds();
+  const stageIds = await getStageIdsFor(tournamentId);
   // When an active tournament exists, scope strictly to its stages (a match
   // with no stage_id belongs to no active stage, so it's excluded). With no
   // active tournament set, fall back to showing all upcoming matches.
@@ -348,16 +399,16 @@ export async function getUpcomingMatches({ teamId = null, limit = null } = {}) {
   return rows;
 }
 
-export async function getNextMatchForTeam(teamId) {
-  const rows = await getUpcomingMatches({ teamId, limit: 1 });
+export async function getNextMatchForTeam(teamId, tournamentId) {
+  const rows = await getUpcomingMatches({ teamId, limit: 1, tournamentId });
   return rows[0] || null;
 }
 
 // The team's game happening NOW: its live (in-progress) match if any,
 // otherwise the next upcoming one. Used by /code so a captain gets the code
 // for the current game, not the one after it.
-export async function getCurrentMatchForTeam(teamId) {
-  const stageIds = await getActiveStageIds();
+export async function getCurrentMatchForTeam(teamId, tournamentId) {
+  const stageIds = await getStageIdsFor(tournamentId);
   const { data, error } = await supabase
     .from('matches')
     .select('*')
@@ -368,12 +419,12 @@ export async function getCurrentMatchForTeam(teamId) {
     (m) => (m.team1_id === teamId || m.team2_id === teamId)
       && (!stageIds.length || (m.stage_id && stageIds.includes(m.stage_id))),
   );
-  return live || getNextMatchForTeam(teamId);
+  return live || getNextMatchForTeam(teamId, tournamentId);
 }
 
-// Win/loss standings for the active tournament, from completed matches.
-export async function getStandings() {
-  const stageIds = await getActiveStageIds();
+// Win/loss standings for one tournament (main by default), from completed matches.
+export async function getStandings(tournamentId) {
+  const stageIds = await getStageIdsFor(tournamentId);
   const { data: matches, error } = await supabase
     .from('matches')
     .select('team1_id, team2_id, score1, score2, status, stage_id')

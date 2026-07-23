@@ -1,18 +1,25 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { link, teamLabel } from '../lib/format.js';
+import { addTournamentOption, resolveTournament } from '../lib/tournamentOption.js';
 
 // /report — captain reports their CURRENT match's final series score from
 // Discord. Authorization happens INSIDE Postgres (bot_report_match_score
 // resolves the caller's discord id → account and requires captain-on-match
 // or admin), so the bot can't be tricked into scoring someone else's series.
+//
+// Defaults to the main tournament; captains running a team in another
+// tournament pass `tournament:` to report that one instead.
 export default {
-  data: new SlashCommandBuilder()
-    .setName('report')
-    .setDescription("Report your team's current match final score (captains only)")
-    .addIntegerOption((o) =>
-      o.setName('us').setDescription('Games YOUR team won').setRequired(true).setMinValue(0).setMaxValue(5))
-    .addIntegerOption((o) =>
-      o.setName('them').setDescription('Games the OPPONENT won').setRequired(true).setMinValue(0).setMaxValue(5)),
+  data: addTournamentOption(
+    new SlashCommandBuilder()
+      .setName('report')
+      .setDescription("Report your team's current match final score (captains only)")
+      .addIntegerOption((o) =>
+        o.setName('us').setDescription('Games YOUR team won').setRequired(true).setMinValue(0).setMaxValue(5))
+      .addIntegerOption((o) =>
+        o.setName('them').setDescription('Games the OPPONENT won').setRequired(true).setMinValue(0).setMaxValue(5)),
+    'Report a match in another tournament (defaults to the main one)',
+  ),
   async execute(interaction, ctx) {
     const acc = await ctx.acl.getAccountByDiscordId(interaction.user.id);
     if (!acc) {
@@ -21,15 +28,26 @@ export default {
         flags: MessageFlags.Ephemeral,
       });
     }
-    const captainTeams = await ctx.acl.getCaptainTeams(acc.id);
+    const t = await resolveTournament(interaction, ctx);
+    if (t.error) return interaction.reply({ content: t.error, flags: MessageFlags.Ephemeral });
+
+    const captainTeams = await ctx.acl.getCaptainTeams(acc.id, t.id);
     if (!captainTeams.length) {
       return interaction.reply({ content: 'Only team captains can report scores.', flags: MessageFlags.Ephemeral });
     }
-    const team = captainTeams[0];
-    const match = await ctx.acl.getCurrentMatchForTeam(team.id);
+
+    // A captain can now run teams in several tournaments — find the one that
+    // actually has a match in the chosen tournament instead of assuming [0].
+    let team = null;
+    let match = null;
+    for (const candidate of captainTeams) {
+      const m = await ctx.acl.getCurrentMatchForTeam(candidate.id, t.id);
+      if (m) { team = candidate; match = m; break; }
+    }
     if (!match) {
+      const where = t.isMain ? '' : ` in **${t.name}**`;
       return interaction.reply({
-        content: `No live or upcoming match found for **${teamLabel(team)}**.`,
+        content: `No live or upcoming match found for your team${where}.`,
         flags: MessageFlags.Ephemeral,
       });
     }

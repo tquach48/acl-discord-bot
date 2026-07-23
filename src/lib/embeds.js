@@ -45,9 +45,13 @@ export async function buildProfileEmbed(acc, ctx) {
   return e;
 }
 
-export async function buildTeamEmbed(team, ctx) {
-  const roster = await ctx.acl.getRoster(team.id);
-  const next = await ctx.acl.getNextMatchForTeam(team.id);
+// `scope` is the resolved tournament from the shared `tournament:` option
+// ({ id, name, isMain }); omit it for the main tournament. A team can be
+// entered in several tournaments with a different roster in each.
+export async function buildTeamEmbed(team, ctx, scope = null) {
+  const tid = scope?.id || null;
+  const roster = await ctx.acl.getRoster(team.id, tid);
+  const next = await ctx.acl.getNextMatchForTeam(team.id, tid);
   const captain = team.captain_id ? await ctx.acl.getAccountById(team.captain_id) : null;
 
   const sorted = [...roster].sort((a, b) => (a.is_sub ? 1 : 0) - (b.is_sub ? 1 : 0));
@@ -65,7 +69,11 @@ export async function buildTeamEmbed(team, ctx) {
     .setColor(team.color ? Number.parseInt(String(team.color).replace('#', ''), 16) : ACCENT)
     .setTitle(teamLabel(team))
     .setURL(link.team(team.id))
-    .addFields({ name: 'Roster', value: rosterLines.slice(0, 1024), inline: false })
+    .addFields({
+      name: scope && !scope.isMain ? `Roster · ${scope.name}` : 'Roster',
+      value: rosterLines.slice(0, 1024),
+      inline: false,
+    })
     .setFooter({ text: 'Atlantic Canada League · playacl.ca' });
 
   if (captain) e.addFields({ name: 'Captain', value: captain.display_name || '—', inline: true });

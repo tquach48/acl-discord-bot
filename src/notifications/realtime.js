@@ -15,9 +15,40 @@ const rankCache = new Map(); // accountId -> last seen riot_tier
 const lftCache = new Map(); // accountId -> last seen looking_for_team
 const faPostByAccount = new Map(); // accountId -> free-agent board message id
 
+// Stage ids belonging to the MAIN tournament. Announcements are main-only:
+// there's no way to pass a tournament to a background watcher, so a concurrent
+// cup would otherwise spam #match-day with games nobody asked about. Cached
+// with a short TTL because stages change rarely.
+let mainStageIds = new Set();
+let mainStagesAt = 0;
+const MAIN_STAGES_TTL = 60 * 1000;
+
+async function refreshMainStages(ctx, force = false) {
+  if (!force && Date.now() - mainStagesAt < MAIN_STAGES_TTL) return;
+  try {
+    mainStageIds = new Set(await ctx.acl.getActiveStageIds());
+    mainStagesAt = Date.now();
+  } catch (e) {
+    log.warn('main stage refresh', e?.message);
+  }
+}
+
+async function isMainTournamentMatch(ctx, row) {
+  await refreshMainStages(ctx);
+  // No active tournament configured — don't suppress anything.
+  if (!mainStageIds.size) return true;
+  if (!row.stage_id) return false;
+  if (mainStageIds.has(row.stage_id)) return true;
+  // A stage created since the last refresh would look foreign; re-check once
+  // before deciding to stay silent.
+  await refreshMainStages(ctx, true);
+  return mainStageIds.has(row.stage_id);
+}
+
 async function seedCaches(ctx) {
   const { data: ms } = await ctx.supabase.from('matches').select('id, status');
   for (const m of ms || []) matchStatus.set(m.id, m.status);
+  await refreshMainStages(ctx, true);
   const { data: accs } = await ctx.supabase.from('accounts').select('id, province, riot_tier, looking_for_team');
   for (const a of accs || []) {
     provinceCache.set(a.id, a.province ?? null);
@@ -179,6 +210,8 @@ export async function startRealtime(client, ctx) {
       // Byes are single-team auto-wins with no opponent / games — nothing to
       // announce (a "Final — TeamA vs —" embed would be nonsense).
       if (row.is_bye) { matchStatus.set(row.id, row.status); return; }
+      // Main tournament only — see mainStageIds above.
+      if (!(await isMainTournamentMatch(ctx, row))) { matchStatus.set(row.id, row.status); return; }
       const prev = matchStatus.get(row.id);
       matchStatus.set(row.id, row.status);
       if (row.status === prev) return;
